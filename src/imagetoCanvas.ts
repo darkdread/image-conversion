@@ -1,4 +1,26 @@
 import { Image2CanvasConfig } from '@models';
+import { Frame, FrameOptions, GifOptions, GifReader, GifWriter } from 'omggif';
+import processFrameWithQuantizer from './processFrameWithQuantizer';
+import urltoBlob from './urltoBlob';
+
+function scaleImageData(imageData: ImageData, scale_x: number, scale_y: number): ImageData{
+  let canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+
+  let context = canvas.getContext('2d');
+  context.putImageData(imageData, 0, 0);
+  
+  let tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width = imageData.width * scale_x;
+  tmpCanvas.height = imageData.height * scale_y;
+
+  let tmpCtx = tmpCanvas.getContext('2d');
+  tmpCtx.scale(scale_x, scale_y);
+  tmpCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height);
+
+  return tmpCtx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
+}
 
 /**
  * 将一个image对象转变为一个canvas对象
@@ -28,8 +50,9 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
   const myConfig = { ...config };
   const cvs = document.createElement('canvas');
   const ctx = cvs.getContext('2d');
-  let height;
-  let width;
+  let height: number;
+  let width: number;
+
   for (const i in myConfig) {
     if (Object.prototype.hasOwnProperty.call(myConfig, i)) {
       myConfig[i] = Number(myConfig[i]);
@@ -45,6 +68,64 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
     width = image.width * scale;
     height = image.height * scale;
   }
+
+  // GIF read/write.
+  let blob = await urltoBlob(image.src);
+  if (blob.type == "image/gif"){
+    let buf: Uint8Array = new Uint8Array(await blob.arrayBuffer());
+    let reader: GifReader = new GifReader(buf as Buffer);
+    let info: Frame = reader.frameInfo(0);
+
+    let imageDatas: ImageData[] = new Array(reader.numFrames()).fill(0).map((_, k) => {
+      let image = new ImageData(info.width, info.height);
+
+      reader.decodeAndBlitFrameRGBA(k, image.data as Uint8ClampedArray);
+      image = scaleImageData(image, width/info.width, height/info.height);
+
+      return image;
+    });
+
+    let base64Png = imageDatas.map((imageData, k) => {
+      let canvas = document.createElement('canvas');
+
+      canvas.width = width;
+      canvas.height = height;
+
+      let context = canvas.getContext('2d');
+
+      context.putImageData(imageData, 0, 0);
+      return canvas.toDataURL("image/png");
+    });
+
+    console.log(base64Png);
+
+    // Writing
+    let writtenBuf: Uint8Array = new Uint8Array(width * height * imageDatas.length * 5);
+    let gifOptions: GifOptions = {
+      loop: reader.loopCount(),
+      background: 0
+    };
+    let writer: GifWriter = new GifWriter(writtenBuf as Buffer, width, height, gifOptions);
+
+    for(let i = 0; i < imageDatas.length; i++){
+      let frameInfo: Frame = reader.frameInfo(i);
+      let frameNq = processFrameWithQuantizer(imageDatas[i], width, height, 10);
+      let frameOptions: FrameOptions = {
+        palette: Array.prototype.slice.call(frameNq.palette),
+        delay: frameInfo.delay,
+        disposal: frameInfo.disposal,
+        transparent: 255
+      };
+      writer.addFrame(0, 0, width, height, frameNq.pixels, frameOptions);
+    }
+    writer.end();
+
+    let bufStr = bufferToString(writtenBuf);
+    let gif = `data:image/gif;base64,${btoa(bufStr)}`;
+
+    console.log(gif);
+  }
+
   // 当顺时针或者逆时针旋转90时，需要交换canvas的宽高
   if ([5, 6, 7, 8].some(i => i === myConfig.orientation)) {
     cvs.height = width;
@@ -95,3 +176,21 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
   }
   return cvs;
 };
+
+let byteMap: string[] = [];
+
+for (let i = 0; i < 256; i++) {
+  byteMap[i] = String.fromCharCode(i);
+}
+
+function bufferToString(buffer: Uint8Array): string {
+  let numberValues = buffer.length;
+  let str = '';
+  let x = -1;
+
+  while (++x < numberValues) {
+    str += byteMap[buffer[x]];
+  }
+
+  return str;
+}

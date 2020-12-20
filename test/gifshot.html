@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <script src='./gifshot.js'></script>
+  <link rel="stylesheet" href="./css/bootstrap.min.css">
+  <style>
+    .border-dark {
+      border-color: rgb(206, 212, 218) !important;
+    }
+
+    .header {
+      padding: 20px 20px 0 20px;
+    }
+
+    .alert-warning {
+      font-size: 12px;
+    }
+
+    #input,
+    #output {
+      margin-top: 0.5rem;
+      overflow: auto;
+      max-height: 600px;
+    }
+
+  </style>
+  <title>Document</title>
+</head>
+
+<body>
+  <div class="header">
+    <h1><a style="color:black"
+        href="https://github.com/WangYuLue/image-conversion">image-conversion</a><a
+        href="https://github.com/WangYuLue/image-conversion"><img
+          style="margin-left: 10px;height: 26px;" src="./img/icon.png" alt=""></a></h1>
+    <p>A simple and easy-to-use JS image convert tools, which can specify size to compress the
+      image.</p>
+  </div>
+  <hr>
+  <div style="margin:0 50px">
+    <div class="row">
+      <div class="col-md-4 border border-dark rounded pt-3 pb-3">
+        <h2>Options</h2>
+        <div style="font-size: 13px;">compressAccurately(file, config)</div>
+        <hr>
+        <div id="output" class="border border-dark"></div>
+      </div>
+    </div>
+  </div>
+  <script>
+
+    function init() {
+      // const file = await imageConversion.urltoBlob('./images/5kiur.gif');
+      // const file = await imageConversion.urltoBlob('./images/logo.gif');
+
+      gifshot.createGIF({
+        'images': ['./images/5kiur.gif'],
+        'gifWidth': 65,
+        'gifHeight': 65
+      },function(obj) {
+        if(!obj.error) {
+          var image = obj.image,
+          animatedImage = document.createElement('img');
+          animatedImage.src = image;
+          document.body.appendChild(animatedImage);
+        }
+      });
+    }
+
+    init();
+  </script>
+</body>
+
+</html>

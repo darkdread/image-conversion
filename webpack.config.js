@@ -3,6 +3,7 @@ const path = require("path");
 module.exports = {
   mode: "production",
   entry: "./src/index.ts",
+  devtool: "eval-source-map",
   output: {
     filename: "conversion.js",
     path: path.resolve(__dirname, "build"),
