@@ -3,7 +3,7 @@ import { Frame, FrameOptions, GifOptions, GifReader, GifWriter } from 'omggif';
 import processFrameWithQuantizer from './processFrameWithQuantizer';
 import urltoBlob from './urltoBlob';
 
-function scaleImageData(imageData: ImageData, scale_x: number, scale_y: number): ImageData{
+function scaleImageData(imageData: ImageData, scale_x: number, scale_y: number): ImageData {
   let canvas = document.createElement('canvas');
   canvas.width = imageData.width;
   canvas.height = imageData.height;
@@ -65,8 +65,8 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
   } else {
     // 缩放比例0-10，不在此范围则保持原来图像大小
     const scale = myConfig.scale > 0 && myConfig.scale < 10 ? myConfig.scale : 1;
-    width = image.width * scale;
-    height = image.height * scale;
+    width = Math.floor(image.width * scale);
+    height = Math.floor(image.height * scale);
   }
 
   // GIF read/write.
@@ -74,15 +74,41 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
   if (blob.type == "image/gif"){
     let buf: Uint8Array = new Uint8Array(await blob.arrayBuffer());
     let reader: GifReader = new GifReader(buf as Buffer);
-    let info: Frame = reader.frameInfo(0);
 
-    let imageDatas: ImageData[] = new Array(reader.numFrames()).fill(0).map((_, k) => {
-      let image = new ImageData(info.width, info.height);
+    let gifOptions: GifOptions = {
+      loop: reader.loopCount(),
+      // background: 1
+    };
+    let writtenBuf: Uint8Array = new Uint8Array(width * height * reader.numFrames() * 5);
+    let writer: GifWriter = new GifWriter(writtenBuf as Buffer, width, height, gifOptions);
 
+    let imageDatas: ImageData[] = new Array(reader.numFrames());
+    for (let k: number = 0; k < imageDatas.length; k++){
+      let image = new ImageData(reader.width, reader.height);
+      let frameInfo: Frame = reader.frameInfo(k);
+
+      // https://github.com/CaptainCodeman/gif-player/blob/d45eecdb7458e08c565341b2eb2d68195329f247/components/gif-player/src/gif-player.js#L357
+      if (k > 0 && frameInfo.disposal < 2) {
+        image.data.set(new Uint8ClampedArray(imageDatas[k-1].data));
+      }
       reader.decodeAndBlitFrameRGBA(k, image.data as Uint8ClampedArray);
-      image = scaleImageData(image, width/info.width, height/info.height);
 
-      return image;
+      imageDatas[k] = image;
+    };
+
+    // Write
+    imageDatas.map((image, k) => {
+      let frameInfo: Frame = reader.frameInfo(k);
+      image = scaleImageData(image, width/reader.width, height/reader.height);
+
+      let frameNq = processFrameWithQuantizer(image, width, height, 10);
+      let frameOptions: FrameOptions = {
+        palette: Array.prototype.slice.call(frameNq.palette),
+        delay: frameInfo.delay,
+        disposal: frameInfo.disposal,
+        // transparent: frameInfo.transparent_index
+      };
+      writer.addFrame(0, 0, width, height, frameNq.pixels, frameOptions);
     });
 
     let base64Png = imageDatas.map((imageData, k) => {
@@ -99,25 +125,6 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
 
     console.log(base64Png);
 
-    // Writing
-    let writtenBuf: Uint8Array = new Uint8Array(width * height * imageDatas.length * 5);
-    let gifOptions: GifOptions = {
-      loop: reader.loopCount(),
-      background: 0
-    };
-    let writer: GifWriter = new GifWriter(writtenBuf as Buffer, width, height, gifOptions);
-
-    for(let i = 0; i < imageDatas.length; i++){
-      let frameInfo: Frame = reader.frameInfo(i);
-      let frameNq = processFrameWithQuantizer(imageDatas[i], width, height, 10);
-      let frameOptions: FrameOptions = {
-        palette: Array.prototype.slice.call(frameNq.palette),
-        delay: frameInfo.delay,
-        disposal: frameInfo.disposal,
-        transparent: 255
-      };
-      writer.addFrame(0, 0, width, height, frameNq.pixels, frameOptions);
-    }
     writer.end();
 
     let bufStr = bufferToString(writtenBuf);
