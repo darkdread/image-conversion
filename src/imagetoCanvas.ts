@@ -3,23 +3,90 @@ import { Frame, FrameOptions, GifOptions, GifReader, GifWriter } from 'omggif';
 import processFrameWithQuantizer from './processFrameWithQuantizer';
 import urltoBlob from './urltoBlob';
 
-function scaleImageData(imageData: ImageData, scale_x: number, scale_y: number): ImageData {
+function scaleImageData(image: CanvasImageSource, scale_x: number, scale_y: number): ImageData {
   let canvas = document.createElement('canvas');
-  canvas.width = imageData.width;
-  canvas.height = imageData.height;
+  canvas.width = image.width as number;
+  canvas.height = image.height as number;
 
   let context = canvas.getContext('2d');
-  context.putImageData(imageData, 0, 0);
+  context.drawImage(image, 0, 0);
   
   let tmpCanvas = document.createElement('canvas');
-  tmpCanvas.width = imageData.width * scale_x;
-  tmpCanvas.height = imageData.height * scale_y;
+  tmpCanvas.width = image.width as number * scale_x;
+  tmpCanvas.height = image.height as number * scale_y;
 
   let tmpCtx = tmpCanvas.getContext('2d');
   tmpCtx.scale(scale_x, scale_y);
   tmpCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height);
 
   return tmpCtx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
+}
+
+function rotateCanvas(image: CanvasImageSource, orientation: number): HTMLCanvasElement {
+  let canvas: HTMLCanvasElement = document.createElement('canvas');
+  canvas.width = image.width as number;
+  canvas.height = image.height as number;
+
+  let context: CanvasRenderingContext2D = canvas.getContext('2d');
+
+  return rotateCanvasInPlace(image, orientation, canvas, context);
+}
+
+function rotateCanvasInPlace(image: CanvasImageSource, orientation: number, cvs: HTMLCanvasElement, ctx: CanvasRenderingContext2D): HTMLCanvasElement {
+  
+  // 设置方向
+  switch (orientation) {
+    case 3:
+      ctx.rotate(180 * Math.PI / 180);
+      ctx.drawImage(image, -cvs.width, -cvs.height, cvs.width, cvs.height);
+      break;
+    case 6:
+      ctx.rotate(90 * Math.PI / 180);
+      ctx.drawImage(image, 0, -cvs.width, cvs.height, cvs.width);
+      break;
+    case 8:
+      ctx.rotate(270 * Math.PI / 180);
+      ctx.drawImage(image, -cvs.height, 0, cvs.height, cvs.width);
+      break;
+    case 2:
+      ctx.translate(cvs.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(image, 0, 0, cvs.width, cvs.height);
+      break;
+    case 4:
+      ctx.translate(cvs.width, 0);
+      ctx.scale(-1, 1);
+      ctx.rotate(180 * Math.PI / 180);
+      ctx.drawImage(image, -cvs.width, -cvs.height, cvs.width, cvs.height);
+      break;
+    case 5:
+      ctx.translate(cvs.width, 0);
+      ctx.scale(-1, 1);
+      ctx.rotate(90 * Math.PI / 180);
+      ctx.drawImage(image, 0, -cvs.width, cvs.height, cvs.width);
+      break;
+    case 7:
+      ctx.translate(cvs.width, 0);
+      ctx.scale(-1, 1);
+      ctx.rotate(270 * Math.PI / 180);
+      ctx.drawImage(image, -cvs.height, 0, cvs.height, cvs.width);
+      break;
+    default:
+      ctx.drawImage(image, 0, 0, cvs.width, cvs.height);
+  }
+
+  return cvs;
+}
+
+function imageDataToCanvas(imageData: ImageData, width: number, height: number): HTMLCanvasElement {
+  let canvas: HTMLCanvasElement = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  let context: CanvasRenderingContext2D = canvas.getContext('2d');
+  context.putImageData(imageData, 0, 0);
+
+  return canvas;
 }
 
 /**
@@ -69,6 +136,15 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
     height = Math.floor(image.height * scale);
   }
 
+  // 当顺时针或者逆时针旋转90时，需要交换canvas的宽高
+  if ([5, 6, 7, 8].some(i => i === myConfig.orientation)) {
+    cvs.height = width;
+    cvs.width = height;
+  } else {
+    cvs.height = height;
+    cvs.width = width;
+  }
+
   // GIF read/write.
   let blob = await urltoBlob(image.src);
   if (blob.type == "image/gif"){
@@ -99,7 +175,10 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
     // Write
     imageDatas.map((image, k) => {
       let frameInfo: Frame = reader.frameInfo(k);
-      image = scaleImageData(image, width/reader.width, height/reader.height);
+      let canvas: HTMLCanvasElement = imageDataToCanvas(image, image.width, image.height);
+      canvas = rotateCanvas(canvas, myConfig.orientation);
+      // image = imageDataToCanvas(image, image.width, image.height).getContext('2d').getImageData(0, 0, image.width, image.height);
+      image = scaleImageData(canvas, width/image.width, height/image.height);
 
       let frameNq = processFrameWithQuantizer(image, width, height, 10);
       let frameOptions: FrameOptions = {
@@ -111,15 +190,10 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
       writer.addFrame(0, 0, width, height, frameNq.pixels, frameOptions);
     });
 
-    let base64Png = imageDatas.map((imageData, k) => {
-      let canvas = document.createElement('canvas');
+    let base64Png = imageDatas.map((image, k) => {
+      let canvas: HTMLCanvasElement = imageDataToCanvas(image, image.width, image.height);
+      canvas = rotateCanvas(canvas, myConfig.orientation);
 
-      canvas.width = width;
-      canvas.height = height;
-
-      let context = canvas.getContext('2d');
-
-      context.putImageData(imageData, 0, 0);
       return canvas.toDataURL("image/png");
     });
 
@@ -133,54 +207,8 @@ export default async function imagetoCanvas(image: HTMLImageElement, config: Ima
     console.log(gif);
   }
 
-  // 当顺时针或者逆时针旋转90时，需要交换canvas的宽高
-  if ([5, 6, 7, 8].some(i => i === myConfig.orientation)) {
-    cvs.height = width;
-    cvs.width = height;
-  } else {
-    cvs.height = height;
-    cvs.width = width;
-  }
-  // 设置方向
-  switch (myConfig.orientation) {
-    case 3:
-      ctx.rotate(180 * Math.PI / 180);
-      ctx.drawImage(image, -cvs.width, -cvs.height, cvs.width, cvs.height);
-      break;
-    case 6:
-      ctx.rotate(90 * Math.PI / 180);
-      ctx.drawImage(image, 0, -cvs.width, cvs.height, cvs.width);
-      break;
-    case 8:
-      ctx.rotate(270 * Math.PI / 180);
-      ctx.drawImage(image, -cvs.height, 0, cvs.height, cvs.width);
-      break;
-    case 2:
-      ctx.translate(cvs.width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(image, 0, 0, cvs.width, cvs.height);
-      break;
-    case 4:
-      ctx.translate(cvs.width, 0);
-      ctx.scale(-1, 1);
-      ctx.rotate(180 * Math.PI / 180);
-      ctx.drawImage(image, -cvs.width, -cvs.height, cvs.width, cvs.height);
-      break;
-    case 5:
-      ctx.translate(cvs.width, 0);
-      ctx.scale(-1, 1);
-      ctx.rotate(90 * Math.PI / 180);
-      ctx.drawImage(image, 0, -cvs.width, cvs.height, cvs.width);
-      break;
-    case 7:
-      ctx.translate(cvs.width, 0);
-      ctx.scale(-1, 1);
-      ctx.rotate(270 * Math.PI / 180);
-      ctx.drawImage(image, -cvs.height, 0, cvs.height, cvs.width);
-      break;
-    default:
-      ctx.drawImage(image, 0, 0, cvs.width, cvs.height);
-  }
+  rotateCanvasInPlace(image, myConfig.orientation, cvs, ctx);
+
   return cvs;
 };
 
